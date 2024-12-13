@@ -20,6 +20,8 @@ using Serilog.Events;
 using Serilog.Formatting.Compact;
 using System;
 using System.IO;
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using Autofac.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
@@ -41,7 +43,7 @@ namespace Seq.Forwarder.Cli.Commands
 
         public RunCommand()
         {
-            Options.Add("nologo", v => _noLogo = true);
+            Options.Add("nologo", _ => _noLogo = true);
             _storagePath = Enable<StoragePathFeature>();
             _listenUri = Enable<ListenUriFeature>();
         }
@@ -97,8 +99,42 @@ namespace Seq.Forwarder.Cli.Commands
                     })
                     .ConfigureWebHostDefaults(web =>
                     {
-                        web.UseUrls(listenUri);
                         web.UseStartup<Startup>();
+                        web.UseKestrel(options =>
+                        {
+                            options.AddServerHeader = false;
+                            options.AllowSynchronousIO = true;
+                        })
+                        .ConfigureKestrel(options =>
+                        {
+                            var apiListenUri = new Uri(listenUri);
+
+                            var ipAddress = apiListenUri.HostNameType switch
+                            {
+                                UriHostNameType.Basic => IPAddress.Any,
+                                UriHostNameType.Dns => IPAddress.Any,
+                                UriHostNameType.IPv4 => IPAddress.Parse(apiListenUri.Host),
+                                UriHostNameType.IPv6 => IPAddress.Parse(apiListenUri.Host),
+                                _ => throw new NotSupportedException($"Listen URI type `{apiListenUri.HostNameType}` is not supported.")
+                            };
+                            
+                            if (apiListenUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+                            {
+                                options.Listen(ipAddress, apiListenUri.Port, listenOptions =>
+                                {
+#if WINDOWS
+                                    listenOptions.UseHttps(StoreName.My, apiListenUri.Host,
+                                        location: StoreLocation.LocalMachine, allowInvalid: true);
+#else
+                                    listenOptions.UseHttps();
+#endif
+                                });
+                            }
+                            else
+                            {
+                                options.Listen(ipAddress, apiListenUri.Port);
+                            }
+                        });
                     })
                     .Build();
 
@@ -149,8 +185,7 @@ namespace Seq.Forwarder.Cli.Commands
             if (!string.IsNullOrWhiteSpace(internalLogServerUri))
                 loggerConfiguration.WriteTo.Seq(
                     internalLogServerUri,
-                    apiKey: internalLogServerApiKey,
-                    compact: true);
+                    apiKey: internalLogServerApiKey);
 
             return loggerConfiguration.CreateLogger();
         }
@@ -165,9 +200,9 @@ namespace Seq.Forwarder.Cli.Commands
         static int RunService(ServerService service)
         {
 #if WINDOWS
-            System.ServiceProcess.ServiceBase.Run(new System.ServiceProcess.ServiceBase[] {
-                new Seq.Forwarder.ServiceProcess.SeqForwarderWindowsService(service)
-            });
+            System.ServiceProcess.ServiceBase.Run([
+                new ServiceProcess.SeqForwarderWindowsService(service)
+            ]);
             return 0;
 #else
             throw new NotSupportedException("Windows services are not supported on this platform.");            
@@ -205,7 +240,7 @@ namespace Seq.Forwarder.Cli.Commands
             Console.WriteLine();
             Write(" Seq Forwarder", ConsoleColor.White);
             Write(" ──", ConsoleColor.DarkGray);
-            Write(" © 2020 Datalust Pty Ltd", ConsoleColor.Gray);
+            Write(" © 2024 Datalust Pty Ltd", ConsoleColor.Gray);
             Console.WriteLine();
             Write("─", ConsoleColor.DarkGray, 47);
             Console.WriteLine();
