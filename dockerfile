@@ -3,7 +3,7 @@ FROM debian:latest
 RUN apt update
 RUN apt install liblmdb-dev -y
 
-RUN wget http://ftp.de.debian.org/debian/pool/main/i/icu/libicu67_67.1-7_amd64.deb
+RUN curl http://ftp.de.debian.org/debian/pool/main/i/icu/libicu67_67.1-7_amd64.deb
 RUN apt install libicu67_67.1-7_amd64.deb -y
 RUN rm libicu67_67.1-7_amd64.deb
 
