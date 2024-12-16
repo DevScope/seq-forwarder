@@ -14,4 +14,5 @@ RUN tar  -xvzf /seqfwd.tar.gz
 WORKDIR /seqfwd-2.1.128-linux-x64
 RUN ./seqfwd config -k api.listenUri --value="http://0.0.0.0:80"
 
+RUN chmod 755 /docker-entrypoint.sh
 CMD /docker-entrypoint.sh
